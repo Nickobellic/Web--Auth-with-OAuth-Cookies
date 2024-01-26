@@ -46,6 +46,18 @@ async function checkDetails(name) {
   return query.rows[0];
 }
 
+async function addSecret(email, secret) {
+  const query = await db.query("SELECT user_id FROM users WHERE username=$1", [email]);
+  if(query.rows[0] == undefined){
+    console.log("No user found");
+    return false;
+  } else {
+    const insertSecret = await db.query("UPDATE users SET secret=$1 WHERE user_id=$2", [secret, query.rows[0].user_id]);
+    console.log("Secret submitted successfully");
+    return true;
+  }
+}
+
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
@@ -62,10 +74,12 @@ app.use(session({                   // Session Middleware
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get("/secrets", (req, res) => {
+app.get("/secrets", async(req, res) => {
   console.log(req.user); // To see the session details stored
   if(req.isAuthenticated()) {  // Returns true if the user is authenticated
-  res.render("secrets.ejs");
+    const result = await checkDetails(req.user.username);
+    let secretText = result.secret == undefined ? "No secrets published by you" : result.secret;
+  res.render("secrets.ejs", {secret: secretText});
   } else {
     res.redirect("/login");
   }
@@ -103,6 +117,20 @@ app.get("/logout", (req, res) => { // GET route to perform Log Out
   })
 }); // API route to do Log Out
 
+app.get("/submit", (req, res) => { // API route to render Secret Submission page
+  try{
+    if(req.isAuthenticated()) { // It can only be viewed if the user is authenticated
+      console.log("Authenticated");
+      res.render("submit.ejs");
+    } else {
+      res.redirect("/login"); // Otherwise, redirect to login page
+    }
+  }
+  catch(err) {
+    console.log(err);
+  }
+})
+
 app.post("/register", async (req, res) => {
   bcrypt.hash(req.body.password, saltRounds, async(err, hash) => {  // bcrypt.hash(data_string, total_salt_rounds, callback_function(error, hash))
     const authorized = await saveDetails(req.body.username, hash);
@@ -117,6 +145,26 @@ app.post("/login", passport.authenticate("local", { // passport.authenticate(str
   successRedirect: "/secrets",    // Redirects when authentication is successful
   failureRedirect: "/login" // Redirects when authentication is failed
 }));
+
+app.post("/submit", async(req, res) => { // POST route to update the Secret submission in the Database
+  try{
+    if(req.isAuthenticated()) { // This can only be donw if the user is authenticated
+      const secretText = req.body.secret; // Get hold of secret Text
+      console.log("Authenticated");
+      const updateStatus = await addSecret(req.user.username, secretText); // Calling method to update Secret. Returns status as true, false
+      if(updateStatus) {  // If successfully updated, redirect to secrets page
+        res.redirect("/secrets");
+      } else {
+        res.redirect("/");  // Else , redirect to home page
+      }
+    } else {
+      res.redirect("/login"); // If not authenticated, redirect to login page
+    }
+  }
+  catch(err) {
+    console.log(err);
+  }
+})
 
 // Use this just before listen()
 // Arguments inside verify() should have same name as that of the name of the input fields
